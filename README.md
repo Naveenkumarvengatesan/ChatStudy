@@ -73,6 +73,156 @@ Client-server chat applications are versatile tools that facilitate real-time co
 
 Client-server chat applications are foundational to real-time communication over networks. They incorporate principles of socket programming, communication protocols, and security mechanisms to provide a seamless user experience. Understanding the basics of client-server chat applications is essential for developers involved in networked application development, as they form the backbone of various collaborative communication systems. As technology evolves, chat applications continue to adapt, incorporating new features and technologies to enhance user interaction and connectivity.
 
+Server: chat_server.py
+
+~~~
+# chat_server.py - Multi-client chat server using TCP sockets and threads
+# Listens on all network interfaces, so other devices on the same Wi-Fi can connect.
+import socket
+import threading
+
+HOST = "0.0.0.0"             # accept connections from any device on the network
+PORT = 8000
+
+clients = {}                 # socket -> username
+lock = threading.Lock()      # protects the clients dictionary
+
+
+def get_local_ip():
+    """Find this computer's IP address on the Wi-Fi/LAN."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))   # no data is sent; only used to pick the right interface
+        return s.getsockname()[0]
+    except OSError:
+        return socket.gethostbyname(socket.gethostname())
+    finally:
+        s.close()
+
+
+def broadcast(message, sender=None):
+    """Send a message to every connected client except the sender."""
+    with lock:
+        for client in list(clients):
+            if client is not sender:
+                try:
+                    client.send(message.encode())
+                except OSError:
+                    client.close()
+                    del clients[client]
+
+
+def handle_client(conn, addr):
+    """Run in a separate thread for each connected client."""
+    try:
+        conn.send("Enter your username: ".encode())
+        username = conn.recv(1024).decode().strip()
+        with lock:
+            clients[conn] = username
+        print(f"[JOINED] {username} connected from {addr}")
+        broadcast(f"*** {username} joined the chat ***", conn)
+
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            message = data.decode().strip()
+            if message.lower() == "exit":
+                break
+            print(f"[{username}] {message}")
+            broadcast(f"{username}: {message}", conn)
+    except ConnectionError:
+        pass
+    finally:
+        with lock:
+            username = clients.pop(conn, "Unknown")
+        conn.close()
+        print(f"[LEFT] {username} disconnected")
+        broadcast(f"*** {username} left the chat ***")
+
+
+def main():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((HOST, PORT))
+    server.listen()
+    print(f"[STARTED] Chat server listening on port {PORT}")
+    print(f"[INFO] Clients on the same Wi-Fi should connect to: {get_local_ip()}")
+
+    while True:
+        conn, addr = server.accept()
+        threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+
+
+if __name__ == "__main__":
+    main()
+~~~
+
+Client: chat_client.py
+
+~~~
+# chat_client.py - Chat client using TCP sockets and threads
+import socket
+import threading
+
+PORT = 8000
+
+
+def receive_messages(sock):
+    """Continuously print messages arriving from the server."""
+    while True:
+        try:
+            data = sock.recv(1024)
+            if not data:
+                break
+            print("\n" + data.decode())
+        except OSError:
+            break
+    print("Disconnected from server.")
+
+
+def main():
+    host = input("Enter server IP (press Enter for this computer): ").strip() or "127.0.0.1"
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client.connect((host, PORT))
+    except OSError as e:
+        print(f"Could not connect to {host}:{PORT} - {e}")
+        return
+
+    prompt = client.recv(1024).decode()
+    client.send(input(prompt).encode())
+
+    threading.Thread(target=receive_messages, args=(client,), daemon=True).start()
+
+    print("Type your messages below. Type 'exit' to leave.")
+    while True:
+        message = input()
+        client.send(message.encode())
+        if message.lower() == "exit":
+            break
+    client.close()
+
+
+if __name__ == "__main__":
+    main()
+~~~
+
+Output:
+
+Server terminal
+
+<img width="952" height="336" alt="image" src="https://github.com/user-attachments/assets/08d86d21-ea88-4253-938f-c57771bcbc54" />
+
+Client 1
+
+<img width="947" height="577" alt="image" src="https://github.com/user-attachments/assets/a01e7f12-fc0c-4abc-bf58-ec2123193f99" />
+
+Client 2
+
+<img width="950" height="548" alt="image" src="https://github.com/user-attachments/assets/fe189268-2cfd-4269-96b0-404700ebc02f" />
+
+
 
 ## Result:
 
